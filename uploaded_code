@@ -1,0 +1,80 @@
+import RPi.GPIO as GPIO
+import time
+import serial
+
+# ---------------- GPIO SETUP ----------------
+IMPACT_PIN = 17   # GPIO pin connected to impact sensor
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(IMPACT_PIN, GPIO.IN)
+
+# ---------------- SERIAL SETUP ----------------
+# GSM Module (SIM800/900)
+gsm = serial.Serial('/dev/serial0', baudrate=9600, timeout=1)
+
+# GPS Module
+gps = serial.Serial('/dev/ttyUSB0', baudrate=9600, timeout=1)
+
+# ---------------- SETTINGS ----------------
+PHONE_NUMBER = "+91XXXXXXXXXX"  # Replace with your number
+IMPACT_THRESHOLD = 1  # Digital sensor trigger
+
+# ---------------- FUNCTIONS ----------------
+
+def send_sms(message):
+    print("Sending SMS...")
+    gsm.write(b'AT+CMGF=1\r')  # Set SMS mode
+    time.sleep(1)
+    
+    gsm.write(('AT+CMGS="{}"\r'.format(PHONE_NUMBER)).encode())
+    time.sleep(1)
+    
+    gsm.write(message.encode())
+    time.sleep(1)
+    
+    gsm.write(bytes([26]))  # CTRL+Z to send
+    time.sleep(3)
+    print("SMS Sent!")
+
+def get_gps_location():
+    print("Fetching GPS location...")
+    
+    while True:
+        line = gps.readline().decode('utf-8', errors='ignore')
+        
+        if "$GPGGA" in line:
+            data = line.split(",")
+            
+            if data[2] and data[4]:
+                lat = data[2]
+                lon = data[4]
+                
+                return f"Latitude: {lat}, Longitude: {lon}"
+
+def detect_accident():
+    if GPIO.input(IMPACT_PIN) == IMPACT_THRESHOLD:
+        print("Impact Detected!")
+        return True
+    return False
+
+# ---------------- MAIN LOOP ----------------
+
+try:
+    print("System Started...")
+    
+    while True:
+        if detect_accident():
+            location = get_gps_location()
+            
+            message = f"🚨 Accident Detected!\n{location}"
+            
+            send_sms(message)
+            
+            print("Alert Sent. Waiting to avoid multiple triggers...")
+            time.sleep(20)  # Prevent spam
+        
+        time.sleep(0.5)
+
+except KeyboardInterrupt:
+    print("Exiting...")
+    GPIO.cleanup()
